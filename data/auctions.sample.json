@@ -1,0 +1,6 @@
+[
+  {"spisova_znacka": "135EX1234/24", "obec": "Kladno", "typ": "byt", "plocha_m2": 58, "odhadni_cena_czk": 3100000, "nejnizsi_podani_czk": 2066667, "termin": "2026-10-20T09:00:00Z", "url": null},
+  {"spisova_znacka": "067EX8871/23", "obec": "Brno", "typ": "byt", "plocha_m2": 72, "odhadni_cena_czk": 5900000, "nejnizsi_podani_czk": 5200000, "termin": "2026-10-27T10:00:00Z", "url": null},
+  {"spisova_znacka": "201EX0456/25", "obec": "Plzeň", "typ": "dum", "plocha_m2": 140, "odhadni_cena_czk": 7200000, "nejnizsi_podani_czk": 4800000, "termin": "2026-11-03T09:30:00Z", "url": null},
+  {"spisova_znacka": "099EX3321/24", "obec": "Ostrava", "typ": "byt", "plocha_m2": 55, "odhadni_cena_czk": 2100000, "nejnizsi_podani_czk": 1400000, "termin": "2026-11-10T11:00:00Z", "url": null}
+]
