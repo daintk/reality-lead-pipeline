@@ -85,4 +85,4 @@ Testy: `pytest -q` · Docker: `docker build -t lead-pipeline . && docker run --e
 | Dražby | zdroj, ke kterému má klient licenci / datový přístup |
 | Cenová mapa | licencované API nebo vlastní data klienta |
 
-Autor: Daniel Andrijčuk · [ruststudio.cz](https://ruststudio.cz) · Licence MIT
+Autor: Daniel Andrijčuk · Všechna práva vyhrazena
