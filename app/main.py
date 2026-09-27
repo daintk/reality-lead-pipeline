@@ -5,6 +5,7 @@ import asyncio
 import contextlib
 import json
 import logging
+import os
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 
@@ -12,7 +13,7 @@ from fastapi import BackgroundTasks, FastAPI, Header, HTTPException, Request
 from fastapi.responses import Response
 from pydantic import ValidationError
 
-from app import pdf, security
+from app import demo, pdf, security
 from app.config import get_settings
 from app.crm import CrmClient
 from app.health import HealthRegistry
@@ -67,7 +68,10 @@ async def lifespan(app: FastAPI):
             await task
 
 
-app = FastAPI(title="Reality Lead Pipeline", version="0.2.0", lifespan=lifespan)
+app = FastAPI(title="Reality Lead Pipeline", version="0.3.0", lifespan=lifespan)
+
+if os.getenv("DEMO_MODE", "false").lower() in {"1", "true", "yes"}:
+    app.include_router(demo.router)
 
 
 def _auth(x_api_key: str | None) -> None:

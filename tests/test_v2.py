@@ -114,3 +114,22 @@ def test_status_dashboard(client):
 @pytest.fixture
 def anyio_backend():
     return "asyncio"
+
+
+def test_demo_mode(monkeypatch):
+    import importlib
+
+    monkeypatch.setenv("WEBHOOK_SECRET", SECRET)
+    monkeypatch.setenv("DEMO_MODE", "true")
+    import app.main as main_mod
+    main_mod = importlib.reload(main_mod)
+    with TestClient(main_mod.app) as c:
+        assert "Reality Lead Pipeline" in c.get("/").text
+        d = c.post("/demo/lead", json={"municipality": "kladno", "property_type": "byt", "area_m2": 68,
+                                       "condition": "puvodni", "declared_debts_czk": 300000,
+                                       "declared_execution": None}).json()
+        assert d["valuation"]["recommended_purchase_czk"] > 0
+        assert c.get(f"/demo/pdf/{d['event_id']}").content.startswith(b"%PDF")
+        assert len(c.get("/demo/auctions").json()["deals"]) == 4
+    monkeypatch.setenv("DEMO_MODE", "false")
+    importlib.reload(main_mod)
