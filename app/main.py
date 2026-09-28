@@ -20,6 +20,8 @@ from app.health import HealthRegistry
 from app.models import LeadIn, LeadPackage
 from app.pipeline import LeadStore, Pipeline
 from app.sources.auctions import FileAuctionSource
+from app.sources.cee import CeeClient, DisabledExecutionSource
+from app.sources.cuzk import DisabledCadastreSource, WsdpClient
 from app.sources.isir import IsirClient
 from app.sources.isir_stream import CursorStore, IsirStream
 from app.valuation import PriceMap
@@ -52,12 +54,25 @@ async def lifespan(app: FastAPI):
     app.state.settings = s
     app.state.health = HealthRegistry()
     app.state.store = LeadStore(s.retention_hours)
+    # Placené registry se zapnou jen s přístupy klienta v .env; jinak běží "vypnuto" a složka to říká.
+    cadastre = (
+        WsdpClient(s.cuzk_wsdp_endpoint, s.cuzk_wsdp_user, s.cuzk_wsdp_password)
+        if s.cuzk_wsdp_endpoint and s.cuzk_wsdp_user
+        else DisabledCadastreSource()
+    )
+    execution = (
+        CeeClient(s.cee_api_url, s.cee_api_key, s.cee_lookup_path)
+        if s.cee_api_url and s.cee_api_key
+        else DisabledExecutionSource()
+    )
     app.state.pipeline = Pipeline(
         settings=s,
         isir=IsirClient(s.isir_endpoint, s.isir_rate_per_sec),
         crm=CrmClient(s.crm_webhook_url, s.crm_dry_run),
         price_map=PriceMap.from_csv(s.price_map_path),
         health=app.state.health,
+        cadastre=cadastre,
+        execution=execution,
     )
     app.state.auctions = FileAuctionSource(s.auctions_file)
     task = asyncio.create_task(isir_poller(app)) if s.isir_stream_enabled else None
@@ -68,7 +83,7 @@ async def lifespan(app: FastAPI):
             await task
 
 
-app = FastAPI(title="Reality Lead Pipeline", version="0.3.0", lifespan=lifespan)
+app = FastAPI(title="Reality Lead Pipeline", version="0.4.0", lifespan=lifespan)
 
 if os.getenv("DEMO_MODE", "false").lower() in {"1", "true", "yes"}:
     app.include_router(demo.router)

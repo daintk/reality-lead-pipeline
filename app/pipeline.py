@@ -10,9 +10,19 @@ from app.config import Settings
 from app.crm import CrmClient
 from app.health import HealthRegistry
 from app.legal import evaluate as legal_evaluate
-from app.models import Condition, InsolvencyCheck, LeadIn, LeadPackage, PropertyType
+from app.models import (
+    CadastreCheck,
+    Condition,
+    ExecutionCheck,
+    InsolvencyCheck,
+    LeadIn,
+    LeadPackage,
+    PropertyType,
+)
 from app.privacy import mask_email, mask_name, mask_phone
 from app.sources.auctions import Auction, AuctionSource
+from app.sources.cee import DisabledExecutionSource, ExecutionSource
+from app.sources.cuzk import CadastreSource, DisabledCadastreSource
 from app.sources.isir import IsirClient
 from app.valuation import PriceMap, compute
 
@@ -52,12 +62,53 @@ class Pipeline:
         crm: CrmClient,
         price_map: PriceMap,
         health: HealthRegistry | None = None,
+        cadastre: CadastreSource | None = None,
+        execution: ExecutionSource | None = None,
     ):
         self.s = settings
         self.isir = isir
         self.crm = crm
         self.price_map = price_map
         self.health = health or HealthRegistry()
+        self.cadastre = cadastre or DisabledCadastreSource()
+        self.execution = execution or DisabledExecutionSource()
+
+    # --- placené registry: jen po levném filtru a se souhlasem ----------------------
+    def _paid_lookups_allowed(self, lead: LeadIn, market_value: int | None) -> str | None:
+        """Vrátí důvod, proč placené výpisy NEstahovat; None = stahovat."""
+        if not lead.consent_registry_check:
+            return "bez souhlasu klienta – neověřujeme"
+        if market_value is None:
+            return "nemovitost se nepodařilo ocenit – placený výpis nestahujeme"
+        if market_value < self.s.paid_lookup_min_value_czk:
+            return f"tržní hodnota pod prahem {self.s.paid_lookup_min_value_czk:,} Kč – placený výpis nestahujeme"
+        return None
+
+    async def _cadastre(self, lead: LeadIn) -> CadastreCheck:
+        if not lead.lv_number:
+            return CadastreCheck(checked=False, reason="chybí číslo LV")
+        try:
+            result = await self.cadastre.lookup(lv_number=lead.lv_number, municipality=lead.municipality)
+            if result.checked:
+                self.health.ok(self.cadastre.name)
+            return result
+        except Exception as exc:  # výpadek ČÚZK nesmí shodit lead
+            log.warning("ČÚZK nedostupný: %s", exc)
+            self.health.error(self.cadastre.name, str(exc))
+            return CadastreCheck(checked=False, reason="ČÚZK dočasně nedostupný – doplnit ručně")
+
+    async def _execution(self, lead: LeadIn) -> ExecutionCheck:
+        if not (lead.ico or lead.birth_date):
+            return ExecutionCheck(checked=False, reason="chybí IČ nebo datum narození")
+        try:
+            result = await self.execution.lookup(ico=lead.ico, full_name=lead.full_name, birth_date=lead.birth_date)
+            if result.checked:
+                self.health.ok(self.execution.name)
+            return result
+        except Exception as exc:
+            log.warning("CEE nedostupná: %s", exc)
+            self.health.error(self.execution.name, str(exc))
+            return ExecutionCheck(checked=False, reason="CEE dočasně nedostupná – doplnit ručně")
 
     async def _insolvency(self, lead: LeadIn) -> InsolvencyCheck:
         if not self.s.isir_enabled:
@@ -114,10 +165,34 @@ class Pipeline:
         if insolvency.records:
             warnings.append(f"nalezeno {len(insolvency.records)} insolvenční řízení – prověřit")
 
+        # Placené registry (ČÚZK 100 Kč, CEE 60 Kč) až po levném filtru; oba paralelně, se zbytkem SLA.
+        skip_reason = self._paid_lookups_allowed(lead, valuation.market_value_czk if valuation else None)
+        if skip_reason:
+            cadastre = CadastreCheck(checked=False, reason=skip_reason)
+            execution = ExecutionCheck(checked=False, reason=skip_reason)
+        else:
+            try:
+                cadastre, execution = await asyncio.wait_for(
+                    asyncio.gather(self._cadastre(lead), self._execution(lead)),
+                    timeout=self.s.sla_seconds * 0.4,
+                )
+            except asyncio.TimeoutError:
+                cadastre = CadastreCheck(checked=False, reason="ČÚZK timeout – doplnit ručně")
+                execution = ExecutionCheck(checked=False, reason="CEE timeout – doplnit ručně")
+        for chk, label in ((cadastre, "katastr"), (execution, "exekuce")):
+            if not chk.checked and chk.reason not in warnings:
+                warnings.append(f"{label}: {chk.reason}")
+        if execution.count:
+            warnings.append(f"CEE: nalezeno {execution.count} exekucí – prověřit")
+
+        # Exekuce: ověřený údaj z CEE má přednost před tím, co uvedl sám majitel.
+        has_execution = (execution.count > 0) if execution.checked else lead.declared_execution
         legal = legal_evaluate(
             insolvency_records=len(insolvency.records),
             insolvency_checked=insolvency.checked,
-            has_execution=lead.declared_execution,
+            has_execution=has_execution,
+            cadastre_flags=cadastre.risk_flags,
+            cadastre_checked=cadastre.checked if not skip_reason else None,
         )
 
         elapsed_ms = int((time.monotonic() - t0) * 1000)
@@ -143,6 +218,8 @@ class Pipeline:
                 "condition": lead.condition.value,
             },
             insolvency=insolvency,
+            cadastre=cadastre,
+            execution=execution,
             valuation=valuation,
             legal=legal,
             warnings=warnings,

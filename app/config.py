@@ -32,6 +32,21 @@ class Settings:
     isir_stream_cursor: str = field(default_factory=lambda: os.getenv("ISIR_STREAM_CURSOR", "state/isir_cursor.json"))
     poll_interval_sec: int = field(default_factory=lambda: int(os.getenv("POLL_INTERVAL_SEC", "300")))
 
+    # Katastr – oficiální WSDP ČÚZK (placené, účet klienta). Prázdné = vypnuto.
+    cuzk_wsdp_endpoint: str = field(default_factory=lambda: os.getenv("CUZK_WSDP_ENDPOINT", ""))
+    cuzk_wsdp_user: str = field(default_factory=lambda: os.getenv("CUZK_WSDP_USER", ""))
+    cuzk_wsdp_password: str = field(default_factory=lambda: os.getenv("CUZK_WSDP_PASSWORD", ""))
+
+    # Centrální evidence exekucí – oficiální API EK ČR (placené, účet klienta). Prázdné = vypnuto.
+    cee_api_url: str = field(default_factory=lambda: os.getenv("CEE_API_URL", ""))
+    cee_api_key: str = field(default_factory=lambda: os.getenv("CEE_API_KEY", ""))
+    cee_lookup_path: str = field(default_factory=lambda: os.getenv("CEE_LOOKUP_PATH", "/lustrace"))
+
+    # Levný filtr: placené výpisy (ČÚZK 100 Kč, CEE 60 Kč) jen u leadů nad touto tržní hodnotou.
+    paid_lookup_min_value_czk: int = field(
+        default_factory=lambda: int(os.getenv("PAID_LOOKUP_MIN_VALUE_CZK", "1000000"))
+    )
+
     # Zdroj dražeb (vyměnitelný adaptér). V demu ukázková data.
     auctions_file: str = field(default_factory=lambda: os.getenv("AUCTIONS_FILE", "data/auctions.sample.json"))
 

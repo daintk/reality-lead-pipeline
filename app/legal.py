@@ -28,7 +28,11 @@ def evaluate(
     insolvency_checked: bool,
     has_execution: bool | None,
     is_auction: bool = False,
+    cadastre_flags: list[str] | None = None,
+    cadastre_checked: bool | None = None,
 ) -> LegalCheck:
+    """`cadastre_flags` = riziková omezení z části C listu vlastnictví (ČÚZK); None = katastr nedotazován."""
+    flags = cadastre_flags or []
     if is_auction:
         return LegalCheck(
             light=Light.green,
@@ -47,11 +51,23 @@ def evaluate(
             reasons=["na vlastníka je vedena exekuce (CEE) – nakládání s majetkem je omezené"],
             next_step="neplatit zálohu; ověřit postup s exekutorem a právníkem",
         )
+    hard = [f for f in flags if any(k in f.lower() for k in ("exeku", "insolven"))]
+    if hard:
+        return LegalCheck(
+            light=Light.red,
+            reasons=[f"na listu vlastnictví je zapsáno: {f}" for f in hard],
+            next_step="neplatit zálohu; ověřit s exekutorem / správcem a právníkem",
+        )
     reasons: list[str] = []
     if not insolvency_checked:
         reasons.append("insolvence neověřena")
     if has_execution is None:
         reasons.append("exekuce neověřeny")
+    if cadastre_checked is False:
+        reasons.append("list vlastnictví neověřen v katastru")
+    for f in flags:  # zástava, předkupní právo, věcné břemeno, plomba – prodej jde, ale s podmínkami
+        reasons.append(f"na LV zapsáno: {f}")
     if reasons:
         return LegalCheck(light=Light.orange, reasons=reasons, next_step="doplnit lustraci před nabídkou ceny")
-    return LegalCheck(light=Light.green, reasons=["insolvence ani exekuce nenalezeny"], next_step="pokračovat v jednání")
+    ok = "insolvence ani exekuce nenalezeny" + (", LV bez rizikových zápisů" if cadastre_checked else "")
+    return LegalCheck(light=Light.green, reasons=[ok], next_step="pokračovat v jednání")

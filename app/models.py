@@ -78,6 +78,26 @@ class InsolvencyCheck(BaseModel):
     records: list[InsolvencyRecord] = []
 
 
+class CadastreCheck(BaseModel):
+    """Výsledek dotazu do katastru (ČÚZK WSDP) – vlastníci a omezení z části C listu vlastnictví."""
+
+    checked: bool
+    reason: str
+    lv_number: str | None = None
+    owners: list[str] = []
+    encumbrances: list[str] = []
+    risk_flags: list[str] = []
+
+
+class ExecutionCheck(BaseModel):
+    """Výsledek lustrace v Centrální evidenci exekucí."""
+
+    checked: bool
+    reason: str
+    count: int = 0
+    case_numbers: list[str] = []
+
+
 class Valuation(BaseModel):
     price_per_m2: int
     market_value_czk: int
@@ -99,6 +119,8 @@ class LeadPackage(BaseModel):
     contact: dict
     property: dict
     insolvency: InsolvencyCheck
+    cadastre: CadastreCheck | None = None
+    execution: ExecutionCheck | None = None
     valuation: Valuation | None
     legal: LegalCheck | None = None
     warnings: list[str] = []

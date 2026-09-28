@@ -87,6 +87,19 @@ def render(package: LeadPackage) -> bytes:
         ("Doporučená nákupní cena", _czk(v.recommended_purchase_czk) if v else "–"),
         ("Zdroj cen", v.price_map_source if v else "–"),
     ])
+    reg: list[tuple[str, str]] = [
+        ("Insolvence (ISIR)",
+         f"{len(package.insolvency.records)} řízení" if package.insolvency.checked else package.insolvency.reason),
+    ]
+    if package.execution:
+        reg.append(("Exekuce (CEE)",
+                    f"{package.execution.count} exekucí" if package.execution.checked else package.execution.reason))
+    if package.cadastre:
+        c = package.cadastre
+        reg.append(("Katastr (ČÚZK)",
+                    (f"vlastníci: {', '.join(c.owners) or '–'}; omezení: {', '.join(c.encumbrances) or 'žádná'}")
+                    if c.checked else c.reason))
+    section("Registry", reg)
     if package.warnings:
         section("Upozornění", [("", w) for w in package.warnings])
 
