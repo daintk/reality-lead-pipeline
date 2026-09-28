@@ -82,15 +82,20 @@ class Pipeline:
             self.health.error("isir", str(exc))
             return InsolvencyCheck(checked=False, reason="ISIR dočasně nedostupný – doplnit ručně")
 
-    async def process(self, lead: LeadIn, received_at: datetime) -> LeadPackage:
+    async def process(
+        self, lead: LeadIn, received_at: datetime, insolvency_override: InsolvencyCheck | None = None
+    ) -> LeadPackage:
         t0 = time.monotonic()
         warnings: list[str] = []
 
-        # ISIR má vlastní časový limit, aby celé zpracování stihlo SLA.
-        try:
-            insolvency = await asyncio.wait_for(self._insolvency(lead), timeout=self.s.sla_seconds * 0.5)
-        except asyncio.TimeoutError:
-            insolvency = InsolvencyCheck(checked=False, reason="ISIR timeout – doplnit ručně")
+        if insolvency_override is not None:  # demo: simulovaná odpověď ISIR
+            insolvency = insolvency_override
+        else:
+            # ISIR má vlastní časový limit, aby celé zpracování stihlo SLA.
+            try:
+                insolvency = await asyncio.wait_for(self._insolvency(lead), timeout=self.s.sla_seconds * 0.5)
+            except asyncio.TimeoutError:
+                insolvency = InsolvencyCheck(checked=False, reason="ISIR timeout – doplnit ručně")
         if not insolvency.checked:
             warnings.append(insolvency.reason)
 

@@ -15,7 +15,7 @@ from fastapi.responses import HTMLResponse, Response
 from pydantic import BaseModel, Field
 
 from app import pdf
-from app.models import Condition, LeadIn, LeadPackage, PropertyType
+from app.models import Condition, InsolvencyCheck, InsolvencyRecord, LeadIn, LeadPackage, PropertyType
 
 router = APIRouter()
 
@@ -41,6 +41,7 @@ class DemoLead(BaseModel):
     condition: Condition
     declared_debts_czk: int = Field(default=0, ge=0, le=1_000_000_000)
     declared_execution: bool | None = None
+    simulate_insolvency: bool = False
 
 
 @router.get("/", response_class=HTMLResponse)
@@ -63,9 +64,18 @@ async def demo_lead(data: DemoLead, request: Request) -> dict:
         phone="+420000000000",
         email="demo@example.com",
         consent_processing=True,
-        **data.model_dump(),
+        **data.model_dump(exclude={"simulate_insolvency"}),
     )
-    package = await request.app.state.pipeline.process(lead, datetime.now(timezone.utc))
+    # V demu nelustrujeme skutečné osoby – odpověď ISIR simulujeme.
+    # V ostrém provozu jde dotaz na oficiální webovou službu ISIR (app/sources/isir.py).
+    records = (
+        [InsolvencyRecord(spisova_znacka="KSPH 60 INS 12345/2026", stav="MORATORIUM")]
+        if data.simulate_insolvency else []
+    )
+    insolvency = InsolvencyCheck(checked=True, reason="ověřeno v ISIR (v demu simulace)", records=records)
+    package = await request.app.state.pipeline.process(
+        lead, datetime.now(timezone.utc), insolvency_override=insolvency
+    )
     request.app.state.store.put(event_id, {"status": "done", "package": package.model_dump(mode="json")})
     return package.model_dump(mode="json")
 
@@ -130,13 +140,15 @@ table{width:100%;border-collapse:collapse;font-size:14px}th,td{text-align:left;p
 <div><label>Plocha (m²)</label><input id="area" type="number" value="68" min="6"></div>
 <div><label>Stav</label><select id="cond"><option value="novostavba">novostavba</option><option value="dobry">dobrý</option><option value="puvodni" selected>původní</option><option value="k_rekonstrukci">k rekonstrukci</option></select></div>
 <div><label>Dluhy (Kč)</label><input id="debts" type="number" value="300000" min="0"></div>
-<div><label>Exekuce</label><select id="exe"><option value="">neuvedeno</option><option value="false">ne</option><option value="true">ano</option></select></div>
+<div><label>Insolvence v ISIR (simulace)</label><select id="ins"><option value="false" selected>bez záznamu</option><option value="true">probíhá řízení</option></select></div>
+<div><label>Exekuce v CEE (simulace)</label><select id="exe"><option value="false" selected>bez záznamu</option><option value="true">vedena exekuce</option></select></div>
 </div>
 <div class="row"><button id="send">Zpracovat lead</button><span id="err" class="muted"></span></div>
 </div>
 
 <div id="result" class="card hidden"><h2>2. Hotová složka</h2>
 <div class="row" style="margin-top:0"><span id="light" class="light"></span><span id="next" class="muted"></span></div>
+<ol id="steps" style="list-style:none;padding:0;margin:4px 0 14px;line-height:1.9"></ol>
 <div class="kpis">
 <div class="kpi"><span class="muted">Tržní hodnota</span><b id="market"></b></div>
 <div class="kpi"><span class="muted">Doporučená nákupní cena</span><b id="buy"></b></div>
@@ -145,6 +157,7 @@ table{width:100%;border-collapse:collapse;font-size:14px}th,td{text-align:left;p
 </div>
 <div class="row"><a id="pdf" target="_blank"><button class="ghost">Otevřít PDF složku</button></a>
 <span class="muted">V ostrém provozu odchází do GoHighLevel automaticky.</span></div>
+<div class="muted" style="margin-top:10px;font-size:14px">Insolvence (ISIR) a exekuce (CEE) se v ostrém provozu ověřují automaticky přes oficiální rozhraní. V demu jsou odpovědi simulované, protože nelustrujeme skutečné osoby.</div>
 </div>
 
 <div class="card"><h2>3. Dražební příležitosti seřazené podle slevy</h2>
@@ -171,7 +184,7 @@ document.getElementById('send').onclick=async()=>{
  const exe=document.getElementById('exe').value;
  const body={municipality:document.getElementById('city').value,property_type:document.getElementById('type').value,
   area_m2:+document.getElementById('area').value,condition:document.getElementById('cond').value,
-  declared_debts_czk:+document.getElementById('debts').value||0,declared_execution:exe===''?null:exe==='true'};
+  declared_debts_czk:+document.getElementById('debts').value||0,declared_execution:exe===''?null:exe==='true',simulate_insolvency:document.getElementById('ins').value==='true'};
  try{const r=await fetch('/demo/lead',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
   const d=await r.json();if(!r.ok)throw new Error(d.detail&&d.detail[0]?d.detail[0].msg:(d.detail||'Chyba'));
   err.textContent='';const v=d.valuation||{};
@@ -182,6 +195,17 @@ document.getElementById('send').onclick=async()=>{
   const l=document.getElementById('light');l.className='light '+d.legal.light;l.textContent='Právní semafor: '+labels[d.legal.light];
   document.getElementById('next').textContent=d.legal.reasons.join(', ')+' → '+d.legal.next_step;
   document.getElementById('pdf').href='/demo/pdf/'+d.event_id;
+  const ins=d.insolvency.records.length?('probíhá řízení '+d.insolvency.records[0].spisova_znacka):'bez záznamu';
+  const exeTxt=body.declared_execution?'vedena exekuce':'bez záznamu';
+  const steps=[
+   ['Lead přijat a zkontrolován (v ostrém provozu přes podepsaný webhook)',true],
+   ['ISIR – insolvence: '+ins,!d.insolvency.records.length],
+   ['CEE – exekuce: '+exeTxt,!body.declared_execution],
+   ['ČÚZK – list vlastnictví (v ostrém provozu přes webové služby ČÚZK)',true],
+   ['Ocenění podle cenové mapy: '+czk(v.recommended_purchase_czk)+' doporučená nákupní cena',true],
+   ['Složka JSON + PDF připravena k odeslání do GoHighLevel',true]];
+  const ol=document.getElementById('steps');ol.innerHTML='';
+  steps.forEach(([t,ok])=>{const li=document.createElement('li');li.textContent=(ok?'✅ ':'⚠️ ')+t;ol.appendChild(li)});
   document.getElementById('result').classList.remove('hidden');
  }catch(e){err.textContent='Chyba: '+e.message}};
 document.getElementById('scan').onclick=async()=>{

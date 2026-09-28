@@ -129,6 +129,14 @@ def test_demo_mode(monkeypatch):
                                        "condition": "puvodni", "declared_debts_czk": 300000,
                                        "declared_execution": None}).json()
         assert d["valuation"]["recommended_purchase_czk"] > 0
+        assert d["legal"]["light"] == "oranzova"  # exekuce neuvedena
+        red = c.post("/demo/lead", json={"municipality": "kladno", "property_type": "byt", "area_m2": 68,
+                                         "condition": "puvodni", "declared_execution": False,
+                                         "simulate_insolvency": True}).json()
+        assert red["legal"]["light"] == "cervena"
+        green = c.post("/demo/lead", json={"municipality": "kladno", "property_type": "byt", "area_m2": 68,
+                                           "condition": "puvodni", "declared_execution": False}).json()
+        assert green["legal"]["light"] == "zelena"
         assert c.get(f"/demo/pdf/{d['event_id']}").content.startswith(b"%PDF")
         assert len(c.get("/demo/auctions").json()["deals"]) == 4
     monkeypatch.setenv("DEMO_MODE", "false")

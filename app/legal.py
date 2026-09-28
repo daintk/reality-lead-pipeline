@@ -44,7 +44,7 @@ def evaluate(
     if has_execution:
         return LegalCheck(
             light=Light.red,
-            reasons=["na vlastníka je vedena exekuce – nakládání s majetkem je omezené"],
+            reasons=["na vlastníka je vedena exekuce (CEE) – nakládání s majetkem je omezené"],
             next_step="neplatit zálohu; ověřit postup s exekutorem a právníkem",
         )
     reasons: list[str] = []
@@ -54,4 +54,4 @@ def evaluate(
         reasons.append("exekuce neověřeny")
     if reasons:
         return LegalCheck(light=Light.orange, reasons=reasons, next_step="doplnit lustraci před nabídkou ceny")
-    return LegalCheck(light=Light.green, reasons=["bez nalezených omezení"], next_step="pokračovat v jednání")
+    return LegalCheck(light=Light.green, reasons=["insolvence ani exekuce nenalezeny"], next_step="pokračovat v jednání")
